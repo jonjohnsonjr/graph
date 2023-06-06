@@ -92,7 +92,7 @@ func (d *directed[K, T]) AddEdge(sourceHash, targetHash K, options ...func(*Edge
 
 	// If the user opted in to preventing cycles, run a cycle check.
 	if d.traits.PreventCycles {
-		createsCycle, err := CreatesCycle[K, T](d, sourceHash, targetHash)
+		createsCycle, err := d.createsCycle(sourceHash, targetHash)
 		if err != nil {
 			return fmt.Errorf("check for cycles: %w", err)
 		}
@@ -198,7 +198,7 @@ func (d *directed[K, T]) AdjacencyMap() (map[K]map[K]Edge[K], error) {
 		return nil, fmt.Errorf("failed to list edges: %w", err)
 	}
 
-	m := make(map[K]map[K]Edge[K])
+	m := make(map[K]map[K]Edge[K], len(vertices))
 
 	for _, vertex := range vertices {
 		m[vertex] = make(map[K]Edge[K])
@@ -212,8 +212,6 @@ func (d *directed[K, T]) AdjacencyMap() (map[K]map[K]Edge[K], error) {
 }
 
 func (d *directed[K, T]) PredecessorMap() (map[K]map[K]Edge[K], error) {
-	m := make(map[K]map[K]Edge[K])
-
 	vertices, err := d.store.ListVertices()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list vertices: %w", err)
@@ -223,6 +221,8 @@ func (d *directed[K, T]) PredecessorMap() (map[K]map[K]Edge[K], error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list edges: %w", err)
 	}
+
+	m := make(map[K]map[K]Edge[K], len(vertices))
 
 	for _, vertex := range vertices {
 		m[vertex] = make(map[K]Edge[K])
@@ -273,6 +273,12 @@ func (d *directed[K, T]) Order() (int, error) {
 }
 
 func (d *directed[K, T]) Size() (int, error) {
+	if ec, ok := d.store.(interface {
+		EdgeCount() (int, error)
+	}); ok {
+		return ec.EdgeCount()
+	}
+
 	size := 0
 	outEdges, err := d.AdjacencyMap()
 	if err != nil {
@@ -293,6 +299,15 @@ func (d *directed[K, T]) edgesAreEqual(a, b Edge[T]) bool {
 	bTargetHash := d.hash(b.Target)
 
 	return aSourceHash == bSourceHash && aTargetHash == bTargetHash
+}
+
+func (d *directed[K, T]) createsCycle(source, target K) (bool, error) {
+	if cc, ok := d.store.(interface {
+		CreatesCycle(source, target K) (bool, error)
+	}); ok {
+		return cc.CreatesCycle(source, target)
+	}
+	return CreatesCycle(Graph[K, T](d), source, target)
 }
 
 // copyEdge returns an argument list suitable for the Graph.AddEdge method. This
